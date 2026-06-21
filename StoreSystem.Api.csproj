@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    JESKO Server.
+    Bu ASP.NET Core Web API bo'lib, ayni paytda Windows tray (soat yonidagi
+    ikonka) ilovasi sifatida ishlaydi. Shuning uchun:
+      - TargetFramework = net8.0-windows  (WinForms/tray uchun)
+      - UseWindowsForms = true             (NotifyIcon, Sozlamalar oynasi)
+      - OutputType = WinExe                (qora konsol oynasi chiqmasin)
+    Ma'lumotlar bazasi: SQLite (bitta fayl, hech qanday SQL Server kerak emas).
+    Shu sabab dastur boshqa kompyuterga qo'shimchasiz o'rnatilib ishlaydi.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>StoreSystem.Api</RootNamespace>
+    <AssemblyName>JESKO.Server</AssemblyName>
+    <!-- Til/madaniyatga bog'liq muammolarni oldini olish (sonlar, sana) -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+  </ItemGroup>
+
+</Project>

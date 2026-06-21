@@ -1,0 +1,51 @@
+==================================================================
+  JESKO SERVER  -  SETUP .EXE YASASH (3 oddiy qadam)
+==================================================================
+
+Bu papka serverning TO'LIQ kodi. Undan bitta setup .exe yasaymiz.
+
+------------------------------------------------------------------
+BIR MARTALIK TAYYORGARLIK (kompyuteringizga 2 ta dastur o'rnatiladi)
+------------------------------------------------------------------
+1) .NET 8 SDK ni o'rnating:
+     https://dotnet.microsoft.com/download/dotnet/8.0
+   (".NET 8.0 SDK" tugmasini tanlang - Runtime emas, SDK)
+
+2) Inno Setup ni o'rnating:
+     https://jrsoftware.org/isdl.php
+
+   (Bu 2 tasi faqat SIZNING kompyuteringizga, setup yasash uchun.
+    Do'kon kompyuteriga ularni o'rnatish SHART EMAS.)
+
+------------------------------------------------------------------
+SETUP YASASH (eng oson yo'l)
+------------------------------------------------------------------
+   "1-SETUP-YASASH.bat"  faylini IKKI MARTA bosing.
+
+   U o'zi:
+     - dasturni exe ga yig'adi
+     - Inno Setup bilan SETUP .exe ni tayyorlaydi
+
+   Tugagach setup faylingiz shu yerda bo'ladi:
+     installer\Output\JESKO-Server-Setup.exe
+
+------------------------------------------------------------------
+KEYIN
+------------------------------------------------------------------
+   JESKO-Server-Setup.exe ni do'kon (server) kompyuteriga o'rnating.
+
+   O'rnatilgach BOSHQARUV OYNASI ochiladi:
+     1) Yuqorida shu kompyuter IP manzillari ko'rinadi (masalan 192.168.1.2)
+     2) Port: 5050 (odatda o'zgartirmaysiz). Yonida "port bo'sh" deb tursa - yaxshi.
+     3) "Serverni ishga tushirish" tugmasini bosing.
+     4) "Server ishga tushdi" chiqadi - tayyor! Endi o'sha IP ni ilova va
+        telefonlarga yozasiz.
+
+   Oynani yopsangiz server soat yonida ("J" ikonka) ishlab turaveradi.
+   Kompyuter o'chib-yongach server O'ZI (jim) ishga tushadi.
+   Oynani yana ochish uchun dasturni qayta oching yoki "J" ikonkani bosing.
+
+   Birinchi kirish:  login = admin   parol = admin123
+
+   Batafsil: INSTALL.md faylini oching.
+==================================================================
