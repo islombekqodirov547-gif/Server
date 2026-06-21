@@ -186,6 +186,18 @@ public class OrdersController : ControllerBase
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null) return NotFound("Buyurtma topilmadi.");
+
+        // Idempotentlik (offline chegirma takror yuborilsa — bir marta qo'llanadi)
+        var discOpId = (req.ClientOpId ?? "").Trim();
+        if (discOpId.Length > 0 && await _db.SyncOperations.AnyAsync(s => s.OperationId == discOpId))
+        {
+            var dupd = await _db.Orders
+                .Include(o => o.Client).Include(o => o.User).Include(o => o.Cashier)
+                .Include(o => o.Items).ThenInclude(i => i.Product)
+                .FirstAsync(o => o.Id == id);
+            return Ok(dupd);
+        }
+
         if (order.Status != "Pending")
             return BadRequest("Chegirma faqat to'lanmagan (kutilayotgan) buyurtmaga beriladi.");
 
@@ -205,6 +217,21 @@ public class OrdersController : ControllerBase
 
         // Umumiy summani qayta hisoblaymiz (butun so'mda)
         order.TotalSum = Math.Round(order.Items.Sum(i => i.Price * i.Quantity));
+
+        if (discOpId.Length > 0)
+        {
+            _db.SyncOperations.Add(new SyncOperation
+            {
+                OperationId = discOpId,
+                Type = "Discount",
+                EntityId = order.Id,
+                Amount = order.TotalSum,
+                AppliedAmount = order.TotalSum,
+                Note = "Offline chegirma (kassa)",
+                ClientCreatedAt = DateTime.UtcNow,
+                AppliedAt = DateTime.UtcNow
+            });
+        }
 
         await _db.SaveChangesAsync();
 
@@ -372,6 +399,22 @@ public class OrdersController : ControllerBase
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null) return NotFound();
+
+        // ── IDEMPOTENTLIK (offline to'lov uchun) ──────────────────────
+        //  To'lov offline qilingan bo'lsa, server qaytganda YAGONA ClientOpId
+        //  bilan yuboriladi. Takror yuborilsa (tarmoq uzilib qayta urindi yoki
+        //  ikki marta bosildi) — to'lov IKKI MARTA qo'llanmaydi (qarz/stok
+        //  ikkilanmaydi). Avval qo'llangan buyurtma qaytariladi.
+        var payOpId = (req.ClientOpId ?? "").Trim();
+        if (payOpId.Length > 0 && await _db.SyncOperations.AnyAsync(s => s.OperationId == payOpId))
+        {
+            var dup = await _db.Orders
+                .Include(o => o.Client).Include(o => o.User).Include(o => o.Cashier)
+                .Include(o => o.Items).ThenInclude(i => i.Product)
+                .FirstAsync(o => o.Id == id);
+            return Ok(dup);
+        }
+
         if (order.Status != "Pending") return BadRequest("Bu buyurtma allaqachon to'langan.");
 
         // Stokni kamaytirish
@@ -438,6 +481,23 @@ public class OrdersController : ControllerBase
                            (string.IsNullOrEmpty(cashierName) ? ")" : $", kassir: {cashierName})")
                 });
             }
+        }
+
+        // Idempotentlik yozuvi — bu to'lov boshqa qayta qo'llanmaydi.
+        if (payOpId.Length > 0)
+        {
+            _db.SyncOperations.Add(new SyncOperation
+            {
+                OperationId = payOpId,
+                Type = "Pay",
+                EntityId = order.Id,
+                Amount = req.PaidSum,
+                AppliedAmount = req.PaidSum,
+                Note = "Offline to'lov (kassa)",
+                ClientCreatedAt = req.OccurredAt ?? DateTime.UtcNow,
+                AppliedAt = DateTime.UtcNow,
+                Device = string.IsNullOrWhiteSpace(req.Device) ? null : req.Device!.Trim()
+            });
         }
 
         await _db.SaveChangesAsync();
@@ -527,6 +587,11 @@ public class PayRequest
     public double DebtPaymentSum { get; set; }         // Ortiqcha puldan eski qarzga o'tkaziladigan summa
     public double CashAmount { get; set; }             // Aralash to'lovda buyurtmaga ketgan naqd qism
     public double CardAmount { get; set; }             // Aralash to'lovda buyurtmaga ketgan plastik qism
+
+    // ── OFFLINE/idempotentlik maydonlari (ixtiyoriy) ──────────────
+    public string? ClientOpId { get; set; }            // YAGONA op id — takror yuborilsa bir marta qo'llanadi
+    public DateTime? OccurredAt { get; set; }          // to'lov aslida (offline) bo'lib o'tgan vaqt
+    public string? Device { get; set; }                // qaysi kassa kompyuteri (audit)
 }
 
 public class QuickSellRequest
@@ -553,6 +618,9 @@ public class QuickSellRequest
 public class DiscountRequest
 {
     public List<DiscountItem> Items { get; set; } = new();
+
+    // Offline/idempotentlik (ixtiyoriy) — takror yuborilsa bir marta qo'llanadi.
+    public string? ClientOpId { get; set; }
 }
 
 public class DiscountItem
