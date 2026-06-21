@@ -114,6 +114,24 @@ public class ReturnsController : ControllerBase
         if (req.Items == null || req.Items.Count == 0)
             return BadRequest("Qaytariladigan mahsulot tanlanmagan.");
 
+        // ── IDEMPOTENTLIK (offline vozvrat uchun) ─────────────────────
+        //  Qaytarish offline qilingan bo'lsa, server qaytganda YAGONA ClientOpId
+        //  bilan yuboriladi. Takror yuborilsa — stok/qarz IKKI MARTA o'zgarmaydi.
+        var retOpId = (req.ClientOpId ?? "").Trim();
+        if (retOpId.Length > 0)
+        {
+            var prev = await _db.SyncOperations.FirstOrDefaultAsync(s => s.OperationId == retOpId);
+            if (prev != null)
+            {
+                var dupRet = await _db.Returns
+                    .Include(r => r.Order).Include(r => r.Client).Include(r => r.Cashier)
+                    .Include(r => r.Items).ThenInclude(i => i.Product)
+                    .FirstOrDefaultAsync(r => r.Id == prev.EntityId);
+                if (dupRet != null) return Ok(dupRet);
+                return Ok(new { duplicate = true, operationId = retOpId });
+            }
+        }
+
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
@@ -140,7 +158,9 @@ public class ReturnsController : ControllerBase
                 ClientId = order.ClientId,
                 CashierId = (req.CashierId.HasValue && req.CashierId.Value > 0) ? req.CashierId : null,
                 Reason = string.IsNullOrWhiteSpace(req.Reason) ? null : req.Reason!.Trim(),
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = (req.OccurredAt.HasValue && req.OccurredAt.Value != default)
+                    ? req.OccurredAt.Value.ToUniversalTime()   // offline qaytarish vaqtini saqlaymiz
+                    : DateTime.UtcNow,
                 Items = new List<ReturnItem>()
             };
 
@@ -255,6 +275,25 @@ public class ReturnsController : ControllerBase
 
             _db.Returns.Add(ret);
             await _db.SaveChangesAsync();
+
+            // Idempotentlik yozuvi — bu vozvrat boshqa qayta qo'llanmaydi.
+            if (retOpId.Length > 0)
+            {
+                _db.SyncOperations.Add(new SyncOperation
+                {
+                    OperationId = retOpId,
+                    Type = "Return",
+                    EntityId = ret.Id,
+                    Amount = total,
+                    AppliedAmount = total,
+                    Note = "Offline vozvrat (kassa)",
+                    ClientCreatedAt = ret.CreatedAt,
+                    AppliedAt = DateTime.UtcNow,
+                    Device = string.IsNullOrWhiteSpace(req.Device) ? null : req.Device!.Trim()
+                });
+                await _db.SaveChangesAsync();
+            }
+
             await tx.CommitAsync();
 
             var created = await _db.Returns
@@ -301,6 +340,11 @@ public class ReturnRequest
     public string RefundType { get; set; } = "Cash";   // naqd/plastik qaytariladigan qism uchun
     public string? Reason { get; set; }
     public List<ReturnItemRequest> Items { get; set; } = new();
+
+    // ── Offline/idempotentlik (ixtiyoriy) ─────────────────────────
+    public string? ClientOpId { get; set; }   // YAGONA op id — takror yuborilsa bir marta qo'llanadi
+    public DateTime? OccurredAt { get; set; }  // qaytarish aslida (offline) bo'lib o'tgan vaqt
+    public string? Device { get; set; }        // qaysi kassa kompyuteri (audit)
 }
 
 public class ReturnItemRequest
