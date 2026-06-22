@@ -123,44 +123,82 @@ public class OrdersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] OrderRequest req)
     {
-        // Stok yetarliligini tekshirish
-        foreach (var item in req.Items)
+        // MUHIM: hamma narsa try/catch ichida — aks holda har qanday xato XOM "500"
+        // bo'lib, sababsiz qaytardi (sotuvchi ilovasida shu muammo bor edi). Endi
+        // aniq sabab qaytadi va eng ko'p uchraydigan holatlar (eskirgan mijoz/mahsulot
+        // id'lari) tushunarli xabar bilan ushlanadi.
+        try
         {
-            var product = await _db.Products.FindAsync(item.ProductId);
-            if (product == null) return BadRequest($"Mahsulot topilmadi: {item.ProductId}");
-            if (product.TotalPieces < item.Quantity)
-                return BadRequest($"'{product.Name}' uchun yetarli stok yo'q. Mavjud: {product.TotalPieces}");
-        }
+            if (req == null) return BadRequest("So'rov bo'sh.");
+            if (req.Items == null || req.Items.Count == 0)
+                return BadRequest("Savatda mahsulot yo'q.");
 
-        var order = new Order
-        {
-            ClientId = req.ClientId,
-            UserId = req.UserId,
-            TotalSum = req.TotalSum,
-            PaidSum = 0,
-            Status = "Pending",
-            CreatedAt = DateTime.UtcNow,
-            Items = req.Items.Select(i => new OrderItem
+            // ── Sotuvchi (UserId) ──
+            // Yuborilgan bo'lsa, mavjudligini tekshiramiz. Topilmasa buyurtmani
+            // YO'QOTMAYMIZ — sotuvchisiz (null) saqlaymiz (eskirgan sessiya bo'lishi mumkin).
+            int? userId = (req.UserId.HasValue && req.UserId.Value > 0) ? req.UserId : null;
+            if (userId.HasValue && !await _db.Users.AnyAsync(u => u.Id == userId.Value))
+                userId = null;
+
+            // ── Mijoz (ClientId) ──
+            // Yuborilgan bo'lsa va serverda topilmasa — aniq xabar (eskirgan ro'yxat).
+            int? clientId = (req.ClientId.HasValue && req.ClientId.Value > 0) ? req.ClientId : null;
+            if (clientId.HasValue && !await _db.Clients.AnyAsync(c => c.Id == clientId.Value))
+                return BadRequest("Tanlangan mijoz serverda topilmadi. Mijozlar ro'yxatini yangilab (pastga torting), qayta urinib ko'ring.");
+
+            // ── Stok + summa (serverda qayta hisoblanadi) ──
+            double total = 0;
+            foreach (var item in req.Items)
             {
-                ProductId = i.ProductId,
-                Quantity = i.Quantity,
-                Price = i.Price,
-                OriginalPrice = i.Price   // chegirmagacha asl narx (boshида = sotuv narxi)
-            }).ToList()
-        };
+                var product = await _db.Products.FindAsync(item.ProductId);
+                if (product == null)
+                    return BadRequest($"Mahsulot topilmadi (id {item.ProductId}). Mahsulotlar ro'yxatini yangilang.");
+                if (item.Quantity <= 0)
+                    return BadRequest($"'{product.Name}' uchun miqdor noto'g'ri.");
+                if (product.TotalPieces < item.Quantity)
+                    return BadRequest($"'{product.Name}' uchun yetarli stok yo'q. Mavjud: {product.TotalPieces}");
+                total += item.Quantity * item.Price;
+            }
 
-        _db.Orders.Add(order);
-        await _db.SaveChangesAsync();
+            var order = new Order
+            {
+                ClientId = clientId,
+                UserId = userId,
+                TotalSum = req.TotalSum > 0 ? req.TotalSum : total,
+                PaidSum = 0,
+                Status = "Pending",
+                PaymentType = "Cash",     // to'lov turi kassirda aniqlanadi (default)
+                CashAmount = 0,
+                CardAmount = 0,
+                CreatedAt = DateTime.UtcNow,
+                Items = req.Items.Select(i => new OrderItem
+                {
+                    ProductId = i.ProductId,
+                    Quantity = i.Quantity,
+                    Price = i.Price,
+                    OriginalPrice = i.Price   // chegirmagacha asl narx (boshida = sotuv narxi)
+                }).ToList()
+            };
 
-        // Reload with includes
-        var created = await _db.Orders
-            .Include(o => o.Client)
-            .Include(o => o.User)
-            .Include(o => o.Cashier)
-            .Include(o => o.Items).ThenInclude(i => i.Product)
-            .FirstAsync(o => o.Id == order.Id);
+            _db.Orders.Add(order);
+            await _db.SaveChangesAsync();
 
-        return Ok(created);
+            // Reload with includes
+            var created = await _db.Orders
+                .Include(o => o.Client)
+                .Include(o => o.User)
+                .Include(o => o.Cashier)
+                .Include(o => o.Items).ThenInclude(i => i.Product)
+                .FirstAsync(o => o.Id == order.Id);
+
+            return Ok(created);
+        }
+        catch (Exception ex)
+        {
+            // Xom 500 o'rniga ANIQ sabab (ichki xato matni bilan) — muammoni ko'rish uchun.
+            var detail = ex.InnerException?.Message ?? ex.Message;
+            return StatusCode(500, "Buyurtma yaratishda xatolik: " + detail);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────
